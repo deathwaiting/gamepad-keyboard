@@ -1,15 +1,12 @@
 package io.github.deathwaiting.gamepadkeyboard
 
-import io.github.deathwaiting.gamepadkeyboard.GamePadKeyMapping
-import io.github.deathwaiting.gamepadkeyboard.GamePadKeys
-import io.github.deathwaiting.gamepadkeyboard.GamePadKeys.L_STICK_PRESS
-import io.github.deathwaiting.gamepadkeyboard.GamePadKeys.R_STICK_RIGHT
-import net.java.games.input.Controller
-import net.java.games.input.Event
-import net.java.games.input.EventQueue
-import org.mockito.Mockito
+import io.github.deathwaiting.gamepadkeyboard.GamePadInput.*
+import io.smallrye.mutiny.operators.multi.processors.BroadcastProcessor
+import org.awaitility.Awaitility
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -21,28 +18,41 @@ class TestGamePadMapping {
 
       val mapping = GamePadKeyMapping.fromYml(mappingYml);
 
-      assertEquals("k", mapping.of(setOf(R_STICK_RIGHT, L_STICK_PRESS)))
+      assertEquals("k", mapping.of(setOf(GamePadKey.R_STICK_RIGHT, GamePadKey.L_STICK_PRESS)))
    }
 
-//   @Test
-//   fun gamePadMapperTest() {
-//      val mappingYml = Files.readString(Path.of("./src/test/resources/qwerty_mapping.yml"));
-//
-//      val mapping = GamePadKeyMapping.fromYml(mappingYml)
-//      val mockedController = createMockedController()
-//      val keyboardEmulator = GamePadToKeyboardMapper(mapping, mockedController, MapperConfigs(1000))
-//      keyboardEmulator.onEmulatedKey { key ->
-//         assertEquals("k", key)
-//      }
-//   }
-//
-//   private fun createMockedController(): Controller {
-//      val eventQueue = EventQueue(5)
-//      val event = Event()
-//      event.set()
-//      eventQueue.add()
-//      val mocked = Mockito.mock(Controller::class.java)
-//      Mockito.`when`(mocked.poll()).thenReturn(true)
-//   }
+   @Test
+   fun gamePadMapperTest() {
+      var outputKey = ""
+      val mappingYml = Files.readString(Path.of("./src/test/resources/qwerty_mapping.yml"));
 
+      val mapping = GamePadKeyMapping.fromYml(mappingYml)
+      val mockedController = MockController()
+      val keyboardEmulator = GamePadToKeyboardMapper(mapping, mockedController)
+      keyboardEmulator.keyStrokes.subscribe().with { s -> outputKey = s; print(s)}
+
+      mockedController
+         .sendInput(R_STICK_X, 0.944f)
+         .sendInput(R_STICK_Y, 0.07f)
+         .sendInput(L_STICK_PRESS, 1f)
+
+      Awaitility.await().atMost(1, TimeUnit.SECONDS)
+         .untilAsserted { assertEquals("k", outputKey) }
+   }
+}
+
+
+class MockController(override val name: String = "Mocked") : GamePadController {
+
+   private val mockedInputs : MutableMap<GamePadInput,Float> = ConcurrentHashMap()
+   override val inputs: BroadcastProcessor<Map<GamePadInput,Float>> = BroadcastProcessor.create()
+
+   init {
+      inputs.subscribe().with { s -> print(s)}
+   }
+   fun sendInput(key:GamePadInput, value: Float): MockController {
+      mockedInputs[key] = value
+      inputs.onNext(mockedInputs)
+      return this
+   }
 }

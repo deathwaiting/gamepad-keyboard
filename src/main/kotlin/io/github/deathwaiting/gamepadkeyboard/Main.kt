@@ -17,11 +17,12 @@ fun main(args: Array<String>) {
     for (i in controllers.indices) {
         println("Controller " + i + ": " + controllers[i].getName())
 
+        val controller:GamePadController = DefaultGamePadController(controllers[i])
         val mappingYml = Files.readString(Path.of("./src/test/resources/qwerty_mapping.yml"));
         val mapping = GamePadKeyMapping.fromYml(mappingYml)
-        val mapper = GamePadToKeyboardMapper(mapping, controllers[i], MapperConfigs())
+        val mapper = GamePadToKeyboardMapper(mapping, controller)
 
-        mapper.onEmulatedKey(::print)
+        mapper.keyStrokes.subscribe().with(::print)
 
         while(true) {
 
