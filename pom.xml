@@ -168,6 +168,12 @@
             <artifactId>kotlin-logging-jvm</artifactId>
             <version>3.0.5</version>
         </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.4.6</version>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/io.smallrye.reactive/mutiny -->
         <dependency>
             <groupId>io.smallrye.reactive</groupId>

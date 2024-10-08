@@ -32,6 +32,7 @@ interface GamePadController {
     val name:String
 }
 
+//should be for xbox controller ... on linux
 private val DEFAULT_CONTROLLER_MAPPING = mapOf(
     "rx" to GamePadInput.R_STICK_X, "ry" to GamePadInput.R_STICK_Y,
     "x" to GamePadInput.L_STICK_X, "y" to GamePadInput.L_STICK_Y,
@@ -69,7 +70,7 @@ class DefaultGamePadController(val controller: Controller, val configs: Controll
         while (queue.getNextEvent(event)) {
             val comp: Component = event.component
 
-            println("input : ${comp.name} -> ${event.value}")
+            logger.trace { "input : ${comp.name} -> ${event.value}"}
 
             val key = configs.inputComponentMapping[comp.name]
             key?.let { input -> inputsValues[input] = event.value }
