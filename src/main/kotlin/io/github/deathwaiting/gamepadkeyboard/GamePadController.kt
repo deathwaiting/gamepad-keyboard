@@ -30,6 +30,7 @@ enum class GamePadInput {
 interface GamePadController {
     val inputs: Multi<Map<GamePadInput,Float>>
     val name:String
+    val configs: ControllerConfigs
 }
 
 //should be for xbox controller ... on linux
@@ -44,7 +45,7 @@ data class ControllerConfigs(val samplingPeriod: Long = 100,
 
 
 
-class DefaultGamePadController(val controller: Controller, val configs: ControllerConfigs = ControllerConfigs(),
+class DefaultGamePadController(val controller: Controller, override val configs: ControllerConfigs = ControllerConfigs(),
                                override val name: String = controller.name
 ) : GamePadController{
     private val logger = KotlinLogging.logger {}
