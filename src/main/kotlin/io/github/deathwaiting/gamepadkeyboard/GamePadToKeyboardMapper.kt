@@ -4,29 +4,68 @@ import io.github.deathwaiting.gamepadkeyboard.GamePadKey.*
 import io.smallrye.mutiny.Multi
 import mu.KotlinLogging
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
-import kotlin.math.acos
 import kotlin.math.atan
 
 
 
 class GamePadToKeyboardMapper(val keyMapping:GamePadKeyMapping, val controller:GamePadController ) {
     private val logger = KotlinLogging.logger{}
-    private val pressedKeys: Multi<Set<GamePadKey>> =
+    private val pressCoolDown = 700L/controller.configs.samplingPeriod
+    private var lastPressedCombination:AtomicReference<KeyPressCounter> = AtomicReference(KeyPressCounter.NONE)
+    private val logicalKeys: Multi<Map<GamePadKey, Boolean>> =
             controller.inputs
+                .cache()
                 .map(::toLogicalKeyPress)
-                .map(::getPressedKeys)
+                .invoke(::setCoolDownCounters)
 
-    val keyStrokes: Multi<String> = pressedKeys.map { pressed -> keyMapping.mapping[pressed] ?: "" }
+
+    data class KeyPressCounter(val keys:Set<GamePadKey>, val counter:Int = 0) {
+        companion object {
+            val NONE = KeyPressCounter(emptySet(), 0)
+        }
+
+        fun increment(): KeyPressCounter {
+            return KeyPressCounter(keys, counter +1)
+        }
+    }
+
+    val keyStrokes: Multi<String> = logicalKeys
+                                        .map(::getPressedKeys)
+                                        .filter { pressed ->  //apply a cooldown to pressed buttons, so, they start to repeat after 1 second of pressing the same combination
+                                            val counter = lastPressedCombination.get().counter
+                                            val printStroke = (counter in 0..pressCoolDown/2 || counter >= pressCoolDown)
+                                            if(printStroke) {
+                                                logger.debug { "Pressed Key(s) $pressed to be printed with cooldown counter: $counter" }
+                                            }
+                                            printStroke
+                                        }
+                                        .map { pressed -> keyMapping.mapping[pressed] ?: "" }
                                         .filter(String::isNotBlank)
 
     init {
-        pressedKeys.subscribe().with { keys -> if(keys.isNotEmpty()) logger.debug { "Pressed Keys: ${keys.sorted()}" } }
+        logicalKeys.map(::getPressedKeys).subscribe().with { keys -> if(keys.isNotEmpty()) logger.debug { "Pressed Keys: ${keys.sorted()}" } }
         keyStrokes.subscribe().with {stroke -> logger.debug { "Writing Letter: $stroke"}}
     }
 
     private fun getPressedKeys(gamePadKeys: Map<GamePadKey, Boolean>):Set<GamePadKey> {
-        return gamePadKeys.filter { gamePadKey -> gamePadKey.value }.keys
+        return gamePadKeys.filterValues { isPressed -> isPressed }.keys
+    }
+
+    private fun setCoolDownCounters(gamePadKeys: Map<GamePadKey, Boolean>){
+        val pressed = getPressedKeys(gamePadKeys)
+        val updated = let {
+            if(pressed.isEmpty()) {
+                lastPressedCombination.updateAndGet{KeyPressCounter.NONE}
+            }
+            else if(lastPressedCombination.get().keys == pressed) {
+                lastPressedCombination.updateAndGet(KeyPressCounter::increment)
+            } else {
+                lastPressedCombination.updateAndGet{KeyPressCounter(pressed, 1)}
+            }
+        }
+        logger.trace{" Last Pressed keys ${updated?.keys ?: emptySet()}  ${updated?.counter?.let {"-> counter :$it"}} "}
     }
 
 
