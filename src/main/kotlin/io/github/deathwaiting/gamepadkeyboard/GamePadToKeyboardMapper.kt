@@ -18,56 +18,47 @@ class GamePadToKeyboardMapper(val keyMapping:GamePadKeyMapping, val controller:G
             controller.inputs
                 .cache()
                 .map(::toLogicalKeyPress)
-                .invoke(::setCoolDownCounters)
 
-
-    data class KeyPressCounter(val keys:Set<GamePadKey>, val counter:Int = 0) {
-        companion object {
-            val NONE = KeyPressCounter(emptySet(), 0)
+    val keyStrokes: Multi<String> =
+        logicalKeys
+        .map(::getPressedKeys)
+        .map { keys ->
+            val counter = lastPressedCombination.updateAndGet{updateKeyPressCounter(it, keys)}
+            Pair(counter, keys)
         }
-
-        fun increment(): KeyPressCounter {
-            return KeyPressCounter(keys, counter +1)
+        .filter { (keyCounter, pressed) ->
+            //apply a cooldown to pressed buttons, so, they start to repeat after 1 second of pressing the same combination
+            val pressCount = keyCounter.count
+            val printStroke = (pressCount in 0..pressCoolDown/2 || pressCount >= pressCoolDown)
+            if(printStroke) {
+                logger.debug { "Pressed Key(s) $pressed to be printed with cooldown counter: $pressCount" }
+            }
+            printStroke
         }
-    }
-
-    val keyStrokes: Multi<String> = logicalKeys
-                                        .map(::getPressedKeys)
-                                        .filter { pressed ->  //apply a cooldown to pressed buttons, so, they start to repeat after 1 second of pressing the same combination
-                                            val counter = lastPressedCombination.get().counter
-                                            val printStroke = (counter in 0..pressCoolDown/2 || counter >= pressCoolDown)
-                                            if(printStroke) {
-                                                logger.debug { "Pressed Key(s) $pressed to be printed with cooldown counter: $counter" }
-                                            }
-                                            printStroke
-                                        }
-                                        .map { pressed -> keyMapping.mapping[pressed] ?: "" }
-                                        .filter(String::isNotBlank)
+        .map{(_, pressed) -> pressed}
+        .map { pressed -> keyMapping.mapping[pressed] ?: "" }
+        .filter(String::isNotBlank)
 
     init {
         logicalKeys.map(::getPressedKeys).subscribe().with { keys -> if(keys.isNotEmpty()) logger.debug { "Pressed Keys: ${keys.sorted()}" } }
         keyStrokes.subscribe().with {stroke -> logger.debug { "Writing Letter: $stroke"}}
     }
 
+
+    private fun updateKeyPressCounter(counter:KeyPressCounter, pressed:Set<GamePadKey> ):KeyPressCounter {
+        return if(pressed.isEmpty()) {
+            KeyPressCounter.NONE
+        }
+        else if(counter.keys == pressed) {
+            counter.increment()
+        } else {
+            KeyPressCounter(pressed, 1)
+        }
+    }
+
     private fun getPressedKeys(gamePadKeys: Map<GamePadKey, Boolean>):Set<GamePadKey> {
         return gamePadKeys.filterValues { isPressed -> isPressed }.keys
     }
-
-    private fun setCoolDownCounters(gamePadKeys: Map<GamePadKey, Boolean>){
-        val pressed = getPressedKeys(gamePadKeys)
-        val updated = let {
-            if(pressed.isEmpty()) {
-                lastPressedCombination.updateAndGet{KeyPressCounter.NONE}
-            }
-            else if(lastPressedCombination.get().keys == pressed) {
-                lastPressedCombination.updateAndGet(KeyPressCounter::increment)
-            } else {
-                lastPressedCombination.updateAndGet{KeyPressCounter(pressed, 1)}
-            }
-        }
-        logger.trace{" Last Pressed keys ${updated?.keys ?: emptySet()}  ${updated?.counter?.let {"-> counter :$it"}} "}
-    }
-
 
     private fun toLogicalKeyPress(inputs:Map<GamePadInput,Float>): Map<GamePadKey,Boolean> {
         val pressedKeys = ConcurrentHashMap<GamePadKey,Boolean>()
@@ -84,14 +75,14 @@ class GamePadToKeyboardMapper(val keyMapping:GamePadKeyMapping, val controller:G
                 .forEach{ pressedKeys[it] = false}
         } else {
             val lStickAngle = getStickAngle(inputs[GamePadInput.L_STICK_X], inputs[GamePadInput.L_STICK_Y])
-            pressedKeys[L_STICK_DOWN] = lStickAngle in 256..284
-            pressedKeys[L_STICK_UP] = lStickAngle in 75..105
-            pressedKeys[L_STICK_RIGHT] = lStickAngle in 345..360 || lStickAngle in 0..15
-            pressedKeys[L_STICK_LEFT] = lStickAngle in 165..195
-            pressedKeys[L_STICK_DOWN_RIGHT] = lStickAngle in 300..330
-            pressedKeys[L_STICK_DOWN_LEFT] = lStickAngle in 210..240
-            pressedKeys[L_STICK_UP_RIGHT] = lStickAngle in 30..60
-            pressedKeys[L_STICK_UP_LEFT] = lStickAngle in 120..150
+            pressedKeys[L_STICK_RIGHT] = lStickAngle in 0..22 || lStickAngle in 338..360
+            pressedKeys[L_STICK_UP_RIGHT] = lStickAngle in 23..67
+            pressedKeys[L_STICK_UP] = lStickAngle in 68..112
+            pressedKeys[L_STICK_UP_LEFT] = lStickAngle in 113..157
+            pressedKeys[L_STICK_LEFT] = lStickAngle in 158..202
+            pressedKeys[L_STICK_DOWN_LEFT] = lStickAngle in 203..247
+            pressedKeys[L_STICK_DOWN] = lStickAngle in 248..292
+            pressedKeys[L_STICK_DOWN_RIGHT] = lStickAngle in 293..337
         }
 
         if( abs(inputs[GamePadInput.R_STICK_X]?: 0.0f) < 0.1f  && abs(inputs[GamePadInput.R_STICK_Y]?: 0.0f) < 0.2f) {
@@ -99,14 +90,14 @@ class GamePadToKeyboardMapper(val keyMapping:GamePadKeyMapping, val controller:G
                 .forEach { pressedKeys[it] = false }
         } else {
             val rStickAngle = getStickAngle(inputs[GamePadInput.R_STICK_X], inputs[GamePadInput.R_STICK_Y])
-            pressedKeys[R_STICK_DOWN] = rStickAngle in 256..284
-            pressedKeys[R_STICK_UP] = rStickAngle in 75..105
-            pressedKeys[R_STICK_RIGHT] = rStickAngle in 345..360 || rStickAngle in 0..15
-            pressedKeys[R_STICK_LEFT] = rStickAngle in 165..195
-            pressedKeys[R_STICK_DOWN_RIGHT] = rStickAngle in 300..330
-            pressedKeys[R_STICK_DOWN_LEFT] = rStickAngle in 210..240
-            pressedKeys[R_STICK_UP_RIGHT] = rStickAngle in 30..60
-            pressedKeys[R_STICK_UP_LEFT] = rStickAngle in 120..150
+            pressedKeys[R_STICK_RIGHT] = rStickAngle in 0..22 || rStickAngle in 338..360
+            pressedKeys[R_STICK_UP_RIGHT] = rStickAngle in 23..67
+            pressedKeys[R_STICK_UP] = rStickAngle in 68..112
+            pressedKeys[R_STICK_UP_LEFT] = rStickAngle in 113..157
+            pressedKeys[R_STICK_LEFT] = rStickAngle in 158..202
+            pressedKeys[R_STICK_DOWN_LEFT] = rStickAngle in 203..247
+            pressedKeys[R_STICK_DOWN] = rStickAngle in 248..292
+            pressedKeys[R_STICK_DOWN_RIGHT] = rStickAngle in 293..337
         }
     }
 
@@ -144,4 +135,16 @@ class GamePadToKeyboardMapper(val keyMapping:GamePadKeyMapping, val controller:G
 
 
     private data class KeyPress(val key: GamePadKey, val pressed: Boolean)
+
+
+    data class KeyPressCounter(val keys:Set<GamePadKey>, val count:Int = 0) {
+        companion object {
+            val NONE = KeyPressCounter(emptySet(), 0)
+        }
+
+        fun increment(): KeyPressCounter {
+            return KeyPressCounter(keys, count +1)
+        }
+
+    }
 }
